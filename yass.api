@@ -1,0 +1,69 @@
+# yass API for registering handlers and constructing responses
+#
+# Author: Ted Summer
+
+declare -a RESPONSE_CODES=(
+  [200]="OK"
+  [400]="Bad Request"
+  [404]="Not Found"
+  [500]="Internal Server Error"
+)
+
+#######################################
+# Register a handler for GET request of
+# the given pattern.
+#
+# Arguments:
+#   1: pattern, bash-compatible pattern
+#   2: handler, command to run
+#######################################
+function yass_get() {
+  ROUTER+=("GET	${1}	${2}")
+}
+
+
+#######################################
+# Register a handler for POST request
+# of the given pattern
+#
+# Arguments:
+#   1: pattern, bash-compatible pattern
+#   2: handler, command to run
+#######################################
+function yass_post() {
+  ROUTER+=("POST	${1}	${2}")
+}
+
+
+#######################################
+# Add a header to the response
+#
+# Arguments:
+#   1: name, header name
+#   2: value, header value
+#######################################
+function yass_add_header() {
+  RESPONSE_HEADERS+="${1}: ${2}\r\n"
+}
+
+
+#######################################
+# Creates and sets the response
+#
+# Arguments:
+#   1: body, response body
+#   2: code, http status code
+#######################################
+function yass_send() {
+  local status_line="HTTP/1.0 ${2} ${RESPONSE_CODES[${2}]}"
+
+  local current_date=$(date +"%a, %d %b %Y %H:%M:%S %Z")
+  yass_add_header "Date" "${current_date}"
+  yass_add_header "Server" "yass (BASH)"
+  yass_add_header "Content-length" "${#1}"
+
+  # used as a global variable in the core yass server
+  _RESPONSE_="${status_line}\r\n${RESPONSE_HEADERS}\r\n${1}"
+  RESPONSE_HEADERS=""
+}
+

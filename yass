@@ -1,0 +1,125 @@
+#!/bin/bash
+#
+# Yet another shell server. A simple HTTP server
+#
+# Author: Ted Summer
+
+# routes the request and calls the registered handler
+function route_request() {
+  local route=""
+  for route in "${ROUTER[@]}"; do
+    read -r method pattern handler <<<"${route}"
+    pattern='^'"${pattern}"'$'
+
+    if [[ "${REQUEST_METHOD}" == "${method}" && "${REQUEST_URL}" =~ $pattern ]]; then
+      ${handler} "${BASH_REMATCH[@]:1}"
+      return
+    fi
+  done
+
+  yass_send "Page not found" 404
+}
+
+
+# constructs global variables from request data
+function parse_request() {
+  # parse the first line
+  read -r REQUEST_METHOD REQUEST_URL REQUEST_HTTP_V < request_pipe
+  # loop to read header lines
+  local line=""
+  while IFS= read -r line; do
+    # replace trailing \r
+    line="${line%%$'\r'}"
+
+    if [[ -z "${line}" ]]; then
+      # done processing headers, handle request body
+      if [[ "${REQUEST_METHOD}" == "GET" ]]; then
+        break
+      fi
+
+      local content_length=$(echo "${REQUEST_HEADERS}" | grep -i "Content-length" | awk '{ print $2 }')
+      if [[ -z "${content_length}" ]]; then
+        break
+      fi
+
+      REQUEST_BODY=$(head -c "${content_length}" request_pipe)
+      break
+    fi
+    
+    # add header to headers variable
+    REQUEST_HEADERS+=$'\n'"${line}"
+
+  done < request_pipe
+}
+
+
+function cleanup() {
+  kill "${YASS_NC_PID}"
+  rm -f request_pipe
+  rm -f response_pipe
+  exit 1
+}
+
+function start_nc() {
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    nc -lv -p ${2:-8080} < response_pipe > request_pipe &
+    YASS_NC_PID=$!
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    nc -lv ${1:-localhost} ${2:-8080} < response_pipe > request_pipe &
+    YASS_NC_PID=$!
+  else
+    echo "Error: Unsupported OS type"
+    exit 1
+  fi
+}
+
+function process_request() {
+  parse_request >&2
+  route_request >&2
+  echo -en $_RESPONSE_
+}
+
+# start the server
+function serve() {
+  YASS_CONF_PATH="${YASS_CONF_PATH:-./yass.conf}"
+  if [[ ! -f "${YASS_CONF_PATH}" ]]; then
+    echo "Unable to find ${YASS_CONF_PATH}. Either set YASS_CONF_PATH or have it in the same directory as the yass server"
+    exit 1
+  fi
+
+  declare -a ROUTER
+  source ./yass.api
+  source $YASS_CONF_PATH
+
+  trap cleanup INT
+  
+  while true; do
+    rm -f request_pipe
+    rm -f response_pipe
+
+    mkfifo request_pipe
+    mkfifo response_pipe
+
+    start_nc
+    process_request > response_pipe
+  done
+}
+
+
+USAGE=$(cat <<EOF
+Usage:
+  ./yass serve [hostname] [port]
+
+  hostname: numerical IP or symbolic hostname. defaults to localhost
+  port: single integers or ranges (nn-mm). defaults to 8080
+EOF
+)
+
+
+if [[ "${1}" == "serve" ]]; then
+  shift
+  serve $@
+else
+  echo "${USAGE}"
+fi
+
