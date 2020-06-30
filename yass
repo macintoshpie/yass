@@ -100,8 +100,12 @@ function serve() {
     mkfifo request_pipe
     mkfifo response_pipe
 
+    exec 3<>request_pipe
+    exec 4<>response_pipe
     start_nc
     process_request > response_pipe
+    exec 3>&-
+    exec 4>&-
   done
 }
 
