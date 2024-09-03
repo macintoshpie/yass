@@ -102,7 +102,7 @@ function serve() {
 
     exec 3<>request_pipe
     exec 4<>response_pipe
-    start_nc
+    start_nc $1 $2
     process_request > response_pipe
     exec 3>&-
     exec 4>&-
